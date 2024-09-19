@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>3D Car Driving Game with Textured Obstacles</title>
+    <title>3D Car Driving Game</title>
     <style>
         body {
             margin: 0;
@@ -21,7 +21,6 @@
 </head>
 <body>
     <div id="info">Use W/A/S/D or Arrow Keys to drive the car.</div>
-    <!-- Include Three.js library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
         // Scene, Camera, Renderer
@@ -100,16 +99,9 @@
         scene.add(car);
 
         // Obstacles
-        var obstacles = [];
-
-        // **Add: Load the texture for obstacles**
-        var obstacleTexture = new THREE.TextureLoader().load('https://i.scdn.co/image/ab67616d00001e02dfd205682bd1b38b4fd8db52'); // Replace with your image URL
-
-        // **Modify: Create obstacle material with the texture**
-        var obstacleMaterial = new THREE.MeshPhongMaterial({ map: obstacleTexture });
-
-        // Obstacle Geometry
         var obstacleGeometry = new THREE.BoxGeometry(20, 20, 20);
+        var obstacleMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+        var obstacles = [];
 
         for (var i = 0; i < 50; i++) {
             var obstacle = new THREE.Mesh(obstacleGeometry, obstacleMaterial);
@@ -130,11 +122,8 @@
         var moveLeft = false;
         var moveRight = false;
 
-        var speed = 0;
-        var maxSpeed = 200;
-        var acceleration = 300;
-        var deceleration = 400;
-        var turnSpeed = Math.PI; // radians per second
+        var velocity = new THREE.Vector3();
+        var direction = new THREE.Vector3();
 
         document.addEventListener('keydown', function(event) {
             switch (event.keyCode) {
@@ -186,54 +175,36 @@
             var time = performance.now();
             var delta = (time - prevTime) / 1000;
 
-            // Handle acceleration and deceleration
-            if (moveForward) {
-                speed += acceleration * delta;
-            } else if (moveBackward) {
-                speed -= acceleration * delta;
-            } else {
-                // Apply natural deceleration
-                if (speed > 0) {
-                    speed -= deceleration * delta;
-                    if (speed < 0) speed = 0;
-                } else if (speed < 0) {
-                    speed += deceleration * delta;
-                    if (speed > 0) speed = 0;
-                }
-            }
+            velocity.x -= velocity.x * 10.0 * delta;
+            velocity.z -= velocity.z * 10.0 * delta;
 
-            // Limit speed
-            if (speed > maxSpeed) speed = maxSpeed;
-            if (speed < -maxSpeed / 2) speed = -maxSpeed / 2;
+            direction.z = Number(moveForward) - Number(moveBackward);
+            direction.x = Number(moveRight) - Number(moveLeft);
+            direction.normalize(); // this ensures consistent movements in all directions
 
-            // Handle rotation
-            if (moveLeft) {
-                car.rotation.y += turnSpeed * delta * (speed / maxSpeed);
-            }
-            if (moveRight) {
-                car.rotation.y -= turnSpeed * delta * (speed / maxSpeed);
-            }
+            if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * delta;
+            if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta;
 
-            // Move car forward
-            car.translateZ(speed * delta);
+            car.position.x += velocity.x * delta;
+            car.position.z += velocity.z * delta;
 
-            // Collision detection with obstacles
-            var carBox = new THREE.Box3().setFromObject(car);
-            obstacles.forEach(function(obstacle) {
-                var obstacleBox = new THREE.Box3().setFromObject(obstacle);
-                if (carBox.intersectsBox(obstacleBox)) {
-                    // Simple collision response: stop the car and move it back slightly
-                    speed = 0;
-                    car.translateZ(-20);
-                }
-            });
+            // Rotate car based on movement direction
+            if (moveLeft) car.rotation.y += 2.0 * delta;
+            if (moveRight) car.rotation.y -= 2.0 * delta;
 
             // Camera follows the car
-            var relativeCameraOffset = new THREE.Vector3(0, 50, -100);
-            var cameraOffset = relativeCameraOffset.applyMatrix4(car.matrixWorld);
-
-            camera.position.lerp(cameraOffset, 0.1);
+            camera.position.lerp(new THREE.Vector3(car.position.x, car.position.y + 50, car.position.z - 100), 0.1);
             camera.lookAt(car.position);
+
+            // Collision detection with obstacles
+            obstacles.forEach(function(obstacle) {
+                var distance = car.position.distanceTo(obstacle.position);
+                if (distance < 20) {
+                    // Simple collision response: stop the car
+                    velocity.x = 0;
+                    velocity.z = 0;
+                }
+            });
 
             renderer.render(scene, camera);
             prevTime = time;
