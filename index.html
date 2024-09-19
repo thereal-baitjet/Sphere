@@ -2,223 +2,336 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>3D Car Driving Game</title>
+    <title>3D Rotating Cube</title>
     <style>
         body {
             margin: 0;
+            background: #000;
             overflow: hidden;
-            background-color: #000;
         }
-        #info {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            color: #fff;
-            font-family: Arial, sans-serif;
-            z-index: 1;
+        canvas {
+            display: block;
         }
     </style>
 </head>
 <body>
-    <div id="info">Use W/A/S/D or Arrow Keys to drive the car.</div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <canvas id="glcanvas"></canvas>
+
     <script>
-        // Scene, Camera, Renderer
-        var scene = new THREE.Scene();
-        scene.fog = new THREE.Fog(0xa0a0a0, 200, 1000);
+        // Get the canvas and WebGL context
+        var canvas = document.getElementById('glcanvas');
+        var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
 
-        var camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 2000);
-        camera.position.set(0, 50, -100);
-
-        var renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.setClearColor(0xa0a0a0);
-        document.body.appendChild(renderer.domElement);
-
-        // Lighting
-        var hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444);
-        hemiLight.position.set(0, 200, 0);
-        scene.add(hemiLight);
-
-        var dirLight = new THREE.DirectionalLight(0xffffff);
-        dirLight.position.set(-0, 200, 100);
-        dirLight.castShadow = true;
-        dirLight.shadow.camera.top = 180;
-        dirLight.shadow.camera.bottom = -100;
-        dirLight.shadow.camera.left = -120;
-        dirLight.shadow.camera.right = 120;
-        scene.add(dirLight);
-
-        // Ground
-        var groundMesh = new THREE.Mesh(
-            new THREE.PlaneGeometry(2000, 2000),
-            new THREE.MeshPhongMaterial({ color: 0x999999, depthWrite: false })
-        );
-        groundMesh.rotation.x = -Math.PI / 2;
-        groundMesh.receiveShadow = true;
-        scene.add(groundMesh);
-
-        // Grid (Roads)
-        var gridHelper = new THREE.GridHelper(2000, 40, 0x000000, 0x000000);
-        gridHelper.position.y = 0.1;
-        scene.add(gridHelper);
-
-        // Road Texture
-        var roadTexture = new THREE.TextureLoader().load('https://i.imgur.com/6S7R15p.png');
-        roadTexture.wrapS = roadTexture.wrapT = THREE.RepeatWrapping;
-        roadTexture.repeat.set(40, 40);
-        gridHelper.material = new THREE.MeshBasicMaterial({ map: roadTexture });
-
-        // Car
-        var car = new THREE.Group();
-
-        // Car Body
-        var bodyGeometry = new THREE.BoxGeometry(20, 10, 40);
-        var bodyMaterial = new THREE.MeshPhongMaterial({ color: 0xff0000 });
-        var carBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
-        carBody.castShadow = true;
-        carBody.receiveShadow = true;
-        car.add(carBody);
-
-        // Car Wheels
-        var wheelGeometry = new THREE.CylinderGeometry(5, 5, 2, 16);
-        var wheelMaterial = new THREE.MeshPhongMaterial({ color: 0x333333 });
-        function createWheel(x, y, z) {
-            var wheel = new THREE.Mesh(wheelGeometry, wheelMaterial);
-            wheel.rotation.z = Math.PI / 2;
-            wheel.position.set(x, y, z);
-            wheel.castShadow = true;
-            wheel.receiveShadow = true;
-            car.add(wheel);
-        }
-        createWheel(-8, -5, 12);
-        createWheel(8, -5, 12);
-        createWheel(-8, -5, -12);
-        createWheel(8, -5, -12);
-
-        scene.add(car);
-
-        // Obstacles
-        var obstacleGeometry = new THREE.BoxGeometry(20, 20, 20);
-        var obstacleMaterial = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
-        var obstacles = [];
-
-        for (var i = 0; i < 50; i++) {
-            var obstacle = new THREE.Mesh(obstacleGeometry, obstacleMaterial);
-            obstacle.position.set(
-                (Math.random() - 0.5) * 1800,
-                10,
-                (Math.random() - 0.5) * 1800
-            );
-            obstacle.castShadow = true;
-            obstacle.receiveShadow = true;
-            scene.add(obstacle);
-            obstacles.push(obstacle);
+        if (!gl) {
+            alert('WebGL not supported, please use a modern browser.');
         }
 
-        // Controls
-        var moveForward = false;
-        var moveBackward = false;
-        var moveLeft = false;
-        var moveRight = false;
+        // Set canvas size
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
 
-        var velocity = new THREE.Vector3();
-        var direction = new THREE.Vector3();
-
-        document.addEventListener('keydown', function(event) {
-            switch (event.keyCode) {
-                case 38: // up
-                case 87: // w
-                    moveForward = true;
-                    break;
-                case 37: // left
-                case 65: // a
-                    moveLeft = true;
-                    break;
-                case 40: // down
-                case 83: // s
-                    moveBackward = true;
-                    break;
-                case 39: // right
-                case 68: // d
-                    moveRight = true;
-                    break;
+        // Vertex shader program
+        var vsSource = \`
+            attribute vec4 aVertexPosition;
+            attribute vec4 aVertexColor;
+            uniform mat4 uModelViewMatrix;
+            uniform mat4 uProjectionMatrix;
+            varying lowp vec4 vColor;
+            void main(void) {
+                gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition;
+                vColor = aVertexColor;
             }
-        }, false);
+        \`;
 
-        document.addEventListener('keyup', function(event) {
-            switch (event.keyCode) {
-                case 38: // up
-                case 87: // w
-                    moveForward = false;
-                    break;
-                case 37: // left
-                case 65: // a
-                    moveLeft = false;
-                    break;
-                case 40: // down
-                case 83: // s
-                    moveBackward = false;
-                    break;
-                case 39: // right
-                case 68: // d
-                    moveRight = false;
-                    break;
+        // Fragment shader program
+        var fsSource = \`
+            varying lowp vec4 vColor;
+            void main(void) {
+                gl_FragColor = vColor;
             }
-        }, false);
+        \`;
 
-        // Animation Loop
-        var prevTime = performance.now();
-        function animate() {
-            requestAnimationFrame(animate);
+        // Initialize shader program
+        function initShaderProgram(gl, vsSource, fsSource) {
+            const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
 
-            var time = performance.now();
-            var delta = (time - prevTime) / 1000;
+            const shaderProgram = gl.createProgram();
+            gl.attachShader(shaderProgram, vertexShader);
+            gl.attachShader(shaderProgram, fragmentShader);
+            gl.linkProgram(shaderProgram);
 
-            velocity.x -= velocity.x * 10.0 * delta;
-            velocity.z -= velocity.z * 10.0 * delta;
-
-            direction.z = Number(moveForward) - Number(moveBackward);
-            direction.x = Number(moveRight) - Number(moveLeft);
-            direction.normalize(); // this ensures consistent movements in all directions
-
-            if (moveForward || moveBackward) velocity.z -= direction.z * 400.0 * delta;
-            if (moveLeft || moveRight) velocity.x -= direction.x * 400.0 * delta;
-
-            car.position.x += velocity.x * delta;
-            car.position.z += velocity.z * delta;
-
-            // Rotate car based on movement direction
-            if (moveLeft) car.rotation.y += 2.0 * delta;
-            if (moveRight) car.rotation.y -= 2.0 * delta;
-
-            // Camera follows the car
-            camera.position.lerp(new THREE.Vector3(car.position.x, car.position.y + 50, car.position.z - 100), 0.1);
-            camera.lookAt(car.position);
-
-            // Collision detection with obstacles
-            obstacles.forEach(function(obstacle) {
-                var distance = car.position.distanceTo(obstacle.position);
-                if (distance < 20) {
-                    // Simple collision response: stop the car
-                    velocity.x = 0;
-                    velocity.z = 0;
-                }
-            });
-
-            renderer.render(scene, camera);
-            prevTime = time;
+            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+                alert('Unable to initialize the shader program: ' + gl.getProgramInfoLog(shaderProgram));
+                return null;
+            }
+            return shaderProgram;
         }
 
-        animate();
+        function loadShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
 
-        // Handle window resize
-        window.addEventListener('resize', function() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                alert('An error occurred compiling the shaders: ' + gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
 
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }, false);
+        const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+
+        const programInfo = {
+            program: shaderProgram,
+            attribLocations: {
+                vertexPosition: gl.getAttribLocation(shaderProgram, 'aVertexPosition'),
+                vertexColor: gl.getAttribLocation(shaderProgram, 'aVertexColor'),
+            },
+            uniformLocations: {
+                projectionMatrix: gl.getUniformLocation(shaderProgram, 'uProjectionMatrix'),
+                modelViewMatrix: gl.getUniformLocation(shaderProgram, 'uModelViewMatrix'),
+            },
+        };
+
+        const buffers = initBuffers(gl);
+
+        var then = 0;
+        var cubeRotation = 0.0;
+
+        function render(now) {
+            now *= 0.001;  // Convert to seconds
+            const deltaTime = now - then;
+            then = now;
+
+            drawScene(gl, programInfo, buffers, deltaTime);
+
+            requestAnimationFrame(render);
+        }
+        requestAnimationFrame(render);
+
+        function initBuffers(gl) {
+            const positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+
+            const positions = [
+                // Front face
+                -1.0, -1.0,  1.0,
+                 1.0, -1.0,  1.0,
+                 1.0,  1.0,  1.0,
+                -1.0,  1.0,  1.0,
+
+                // Back face
+                -1.0, -1.0, -1.0,
+                -1.0,  1.0, -1.0,
+                 1.0,  1.0, -1.0,
+                 1.0, -1.0, -1.0,
+
+                // Top face
+                -1.0,  1.0, -1.0,
+                -1.0,  1.0,  1.0,
+                 1.0,  1.0,  1.0,
+                 1.0,  1.0, -1.0,
+
+                // Bottom face
+                -1.0, -1.0, -1.0,
+                 1.0, -1.0, -1.0,
+                 1.0, -1.0,  1.0,
+                -1.0, -1.0,  1.0,
+
+                // Right face
+                 1.0, -1.0, -1.0,
+                 1.0,  1.0, -1.0,
+                 1.0,  1.0,  1.0,
+                 1.0, -1.0,  1.0,
+
+                // Left face
+                -1.0, -1.0, -1.0,
+                -1.0, -1.0,  1.0,
+                -1.0,  1.0,  1.0,
+                -1.0,  1.0, -1.0,
+            ];
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+
+            const faceColors = [
+                [1.0,  0.0,  0.0,  1.0], // Front face: red
+                [0.0,  1.0,  0.0,  1.0], // Back face: green
+                [0.0,  0.0,  1.0,  1.0], // Top face: blue
+                [1.0,  1.0,  0.0,  1.0], // Bottom face: yellow
+                [1.0,  0.0,  1.0,  1.0], // Right face: purple
+                [0.0,  1.0,  1.0,  1.0], // Left face: cyan
+            ];
+
+            var colors = [];
+            for (var j = 0; j < faceColors.length; ++j) {
+                const c = faceColors[j];
+                colors = colors.concat(c, c, c, c);
+            }
+
+            const colorBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
+
+            const indexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+
+            const indices = [
+                0,  1,  2,      0,  2,  3,    // front
+                4,  5,  6,      4,  6,  7,    // back
+                8,  9,  10,     8,  10, 11,   // top
+                12, 13, 14,     12, 14, 15,   // bottom
+                16, 17, 18,     16, 18, 19,   // right
+                20, 21, 22,     20, 22, 23,   // left
+            ];
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+
+            return {
+                position: positionBuffer,
+                color: colorBuffer,
+                indices: indexBuffer,
+            };
+        }
+
+        function drawScene(gl, programInfo, buffers, deltaTime) {
+            gl.canvas.width = window.innerWidth;
+            gl.canvas.height = window.innerHeight;
+
+            gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+            gl.clearColor(0.0, 0.0, 0.0, 1.0);
+            gl.clearDepth(1.0);
+            gl.enable(gl.DEPTH_TEST);
+            gl.depthFunc(gl.LEQUAL);
+
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+            const fieldOfView = 45 * Math.PI / 180;
+            const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+            const zNear = 0.1;
+            const zFar = 100.0;
+            const projectionMatrix = mat4.create();
+
+            mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
+
+            const modelViewMatrix = mat4.create();
+
+            mat4.translate(modelViewMatrix, modelViewMatrix, [0.0, 0.0, -6.0]);
+
+            mat4.rotate(modelViewMatrix, modelViewMatrix, cubeRotation, [0, 0, 1]);
+            mat4.rotate(modelViewMatrix, modelViewMatrix, cubeRotation * 0.7, [0, 1, 0]);
+
+            {
+                const numComponents = 3;
+                const type = gl.FLOAT;
+                const normalize = false;
+                const stride = 0;
+                const offset = 0;
+                gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
+                gl.vertexAttribPointer(
+                    programInfo.attribLocations.vertexPosition,
+                    numComponents,
+                    type,
+                    normalize,
+                    stride,
+                    offset);
+                gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+            }
+
+            {
+                const numComponents = 4;
+                const type = gl.FLOAT;
+                const normalize = false;
+                const stride = 0;
+                const offset = 0;
+                gl.bindBuffer(gl.ARRAY_BUFFER, buffers.color);
+                gl.vertexAttribPointer(
+                    programInfo.attribLocations.vertexColor,
+                    numComponents,
+                    type,
+                    normalize,
+                    stride,
+                    offset);
+                gl.enableVertexAttribArray(programInfo.attribLocations.vertexColor);
+            }
+
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.indices);
+
+            gl.useProgram(programInfo.program);
+
+            gl.uniformMatrix4fv(
+                programInfo.uniformLocations.projectionMatrix,
+                false,
+                projectionMatrix);
+            gl.uniformMatrix4fv(
+                programInfo.uniformLocations.modelViewMatrix,
+                false,
+                modelViewMatrix);
+
+            {
+                const vertexCount = 36;
+                const type = gl.UNSIGNED_SHORT;
+                const offset = 0;
+                gl.drawElements(gl.TRIANGLES, vertexCount, type, offset);
+            }
+
+            cubeRotation += deltaTime;
+        }
+
+        // Minimal mat4 library
+        var mat4 = {
+            create: function() {
+                var out = new Float32Array(16);
+                out[0] = 1;
+                out[5] = 1;
+                out[10] = 1;
+                out[15] = 1;
+                return out;
+            },
+            perspective: function(out, fovy, aspect, near, far) {
+                var f = 1.0 / Math.tan(fovy / 2);
+                var nf = 1 / (near - far);
+                out[0] = f / aspect;
+                out[5] = f;
+                out[10] = (far + near) * nf;
+                out[11] = -1;
+                out[14] = (2 * far * near) * nf;
+                out[15] = 0;
+            },
+            translate: function(out, a, v) {
+                var x = v[0], y = v[1], z = v[2];
+                out[12] = a[0] * x + a[4] * y + a[8] * z + a[12];
+                out[13] = a[1] * x + a[5] * y + a[9] * z + a[13];
+                out[14] = a[2] * x + a[6] * y + a[10] * z + a[14];
+                out[15] = a[3] * x + a[7] * y + a[11] * z + a[15];
+            },
+            rotate: function(out, a, rad, axis) {
+                var x = axis[0], y = axis[1], z = axis[2];
+                var len = Math.hypot(x, y, z);
+                if (len < 0.000001) return;
+                x /= len; y /= len; z /= len;
+                var s = Math.sin(rad);
+                var c = Math.cos(rad);
+                var t = 1 - c;
+
+                var a00 = a[0], a01 = a[1], a02 = a[2];
+                var a10 = a[4], a11 = a[5], a12 = a[6];
+                var a20 = a[8], a21 = a[9], a22 = a[10];
+
+                var b00 = x * x * t + c,     b01 = y * x * t + z * s, b02 = z * x * t - y * s;
+                var b10 = x * y * t - z * s, b11 = y * y * t + c,     b12 = z * y * t + x * s;
+                var b20 = x * z * t + y * s, b21 = y * z * t - x * s, b22 = z * z * t + c;
+
+                out[0] = a00 * b00 + a10 * b01 + a20 * b02;
+                out[1] = a01 * b00 + a11 * b01 + a21 * b02;
+                out[2] = a02 * b00 + a12 * b01 + a22 * b02;
+                out[4] = a00 * b10 + a10 * b11 + a20 * b12;
+                out[5] = a01 * b10 + a11 * b11 + a21 * b12;
+                out[6] = a02 * b10 + a12 * b11 + a22 * b12;
+                out[8] = a00 * b20 + a10 * b21 + a20 * b22;
+                out[9] = a01 * b20 + a11 * b21 + a21 * b22;
+                out[10] = a02 * b20 + a12 * b21 + a22 * b22;
+            },
+        };
     </script>
 </body>
 </html>
